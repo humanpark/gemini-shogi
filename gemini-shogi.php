@@ -820,10 +820,10 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
         $model_name = sanitize_text_field($params['gemini_model'] ?? 'gemini-2.5-flash');
     } else {
         // 後手(OpenRouter)のモデル名はWordPressのオプションから取得する
-        $model_name = get_option('gemini_shogi_openrouter_model_name', 'mistralai/mistral-7b-instruct'); 
+        $model_name = get_option('gemini_shogi_openrouter_model_name', 'openrouter/horizon-beta'); 
         if (empty($model_name)) {
             // 管理画面で設定されていない場合のデフォルト値
-            $model_name = 'mistralai/mistral-7b-instruct';
+            $model_name = 'openrouter/horizon-beta';
         }
     }
     
@@ -1035,3 +1035,4 @@ PROMPT;
 
     return new WP_REST_Response($final_response_data, 200);
 }
+
