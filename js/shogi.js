@@ -9,7 +9,8 @@ jQuery(document).ready(function ($) {
     let selectedPiece = null;
     // validMoves はサーバー側で管理するためクライアントでは不要に
     let gameMode = 'player-vs-ai';
-    let aiVsAiInterval = null;
+    let aiVsAiTimeoutId = null; // setIntervalからsetTimeoutに変更するため改名
+    let isAiThinking = false;   // AIの多重思考を防ぐためのロックフラグ
     const pluginUrl = gemini_shogi_data.plugin_url;
 
     // =================================================================
@@ -96,14 +97,13 @@ jQuery(document).ready(function ($) {
         $('#start-ai-vs-ai-button').prop('disabled', true);
         $('#stop-ai-vs-ai-button').prop('disabled', false);
         updateStatus('AI対戦を開始します...');
-        aiVsAiInterval = setInterval(requestAiVsAiMove, 2000); // 2秒ごとに手を進める
+        isAiThinking = false; // ループ開始前にリセット
+        requestAiVsAiMove(); // ループをキックスタート
     }
 
     function stopAiVsAiGame() {
-        if (aiVsAiInterval) {
-            clearInterval(aiVsAiInterval);
-            aiVsAiInterval = null;
-        }
+        clearTimeout(aiVsAiTimeoutId);
+        isAiThinking = false; // ループを停止し、ロックを解除
         $('#start-ai-vs-ai-button').prop('disabled', false);
         $('#stop-ai-vs-ai-button').prop('disabled', true);
     }
@@ -288,8 +288,11 @@ jQuery(document).ready(function ($) {
     }
 
     function requestAiVsAiMove() {
+        if (isAiThinking) return; // 既にAIが思考中なら多重実行を防ぐ
+
         const currentTurnPlayer = turn === 'b' ? '先手(Gemini)' : '後手(OpenRouter)';
         updateStatus(`${currentTurnPlayer}が考慮中です...`);
+        isAiThinking = true; // AIの思考を開始し、ロックをかける
 
         $.ajax({
             url: gemini_shogi_data.ai_vs_ai_url,
@@ -308,6 +311,7 @@ jQuery(document).ready(function ($) {
             },
             error: (jqXHR, textStatus) => {
                 updateStatus(`AI通信エラー: ${textStatus}`);
+                isAiThinking = false; // エラーが発生した場合もロックを解除
                 stopAiVsAiGame();
             }
         });
@@ -316,8 +320,11 @@ jQuery(document).ready(function ($) {
     /**
      * ★★★ (修正) AIからのレスポンスを処理する関数 ★★★
      * サーバーから送られてきた新しい盤面状態でJSのグローバル変数を上書きし、再描画する。
+     * setTimeoutで次の手をスケジュールする機能を追加。
      */
     function handleAiResponse(response, nextTurn) {
+        isAiThinking = false; // レスポンスを受け取ったので、思考ロックを解除
+
         if (response.move && response.move !== 'resign') {
             if (response.new_sfen_board && response.new_sfen_captured) {
                 // サーバーの状態を正として、クライアントの状態を強制的に同期
@@ -335,12 +342,14 @@ jQuery(document).ready(function ($) {
 
                 if (gameMode === 'player-vs-ai') {
                     updateStatus('あなたの番です。');
+                } else if (gameMode === 'ai-vs-ai') {
+                    // AI対AIモードの場合、次の手を2秒後にスケジュール
+                    aiVsAiTimeoutId = setTimeout(requestAiVsAiMove, 2000);
                 }
             } else {
-                stopAiVsAiGame();
-                const errorMessage = `エラー：サーバーからの応答が不正です。盤面を同期できませんでした。`;
-                updateStatus(errorMessage);
+                updateStatus(`エラー：サーバーからの応答が不正です。盤面を同期できませんでした。`);
                 console.error("Invalid response from server, missing new SFEN data.", response);
+                stopAiVsAiGame();
             }
         } else {
             const winnerText = turn === 'b' ? '後手' : '先手';
