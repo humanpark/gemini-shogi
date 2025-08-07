@@ -1,29 +1,48 @@
 # Gemini Shogi (Gemini 将棋)
 
-Gemini APIと連携し、AIとの将棋対戦を可能にするWordPressプラグインです。
+Gemini APIやOpenRouter APIと連携し、AIとの将棋対戦を可能にするWordPressプラグインです。プレイヤー対AI、さらにAI対AIの観戦モードもサポートしています。
 
-This is a WordPress plugin that allows you to play Shogi against a Gemini-powered AI.
+This is a WordPress plugin that allows you to play Shogi against an AI, powered by the Gemini API and OpenRouter API. It supports both Player vs. AI and an AI vs. AI spectator mode.
 
 ## 概要 (Overview)
 
-このプラグインを導入すると、WordPressの投稿や固定ページに `[gemini-shogi]` というショートコードを記述するだけで、将棋盤を設置できます。プレイヤーは先手（☗）、Gemini APIを利用したAIが後手（☖）となり、対局を楽しむことができます。
+このプラグインを導入すると、WordPressの投稿や固定ページに `[gemini-shogi]` というショートコードを記述するだけで、高機能な将棋盤を設置できます。
 
-By adding the `[gemini-shogi]` shortcode to any post or page, you can embed a Shogi board. The human player plays as Sente (Black), and the AI, powered by the Gemini API, plays as Gote (White).
+By adding the `[gemini-shogi]` shortcode to any post or page, you can embed a fully-functional Shogi board.
 
 ## 主な機能 (Features)
 
-*   **ショートコードによる簡単な埋め込み**: `[gemini-shogi]` だけで将棋盤を表示
-*   **Gemini APIを活用したAI対戦**: GoogleのGeminiモデルが次の手を考えます
-*   **3段階の難易度調整**: AIの強さを「やさしい」「ふつう」「プロ棋士」から選択可能
-*   **合法手の表示**: 自分の駒を選択すると、移動可能なマスがハイライトされます
-*   **持ち駒対応**: 取った駒を自分の持ち駒として使用できます
-*   **厳密なルール判定**: 駒の動き、成り、王手、詰み、二歩や打ち歩詰めなどの禁じ手は、すべてサーバーサイド（PHP）で判定されるため、AIがルール違反の手を指すことはありません。
+*   **ショートコードによる簡単な埋め込み**: `[gemini-shogi]` だけで将棋盤を表示します。
+*   **2つのゲームモード**:
+    *   **プレイヤー vs AI**: プレイヤー（先手）がAI（後手）と対戦します。
+    *   **AI vs AI**: 先手（Gemini）と後手（OpenRouter経由のモデル）のAI同士の対戦を観戦できます。
+*   **マルチAIモデル対応**:
+    *   **先手AI**: GoogleのGeminiシリーズからモデルを選択できます (`gemini-2.5-pro`, `gemini-2.5-flash`など)。
+    *   **後手AI**: [OpenRouter](https://openrouter.ai/)経由で、MistralやLlamaなど、多数のLLMを対戦相手として設定可能です。
+*   **3段階の難易度調整**: プレイヤー対AIモードで、AIの強さを「やさしい」「ふつう」「プロ棋士」から選択できます。
+*   **厳密なルール判定**: 駒の動き、成り、王手、詰み、二歩や打ち歩詰めなどの禁じ手は、すべてサーバーサイド（PHP）で厳密に判定されます。これにより、AIやプレイヤーがルール違反の手を指すことを防ぎます。
+*   **安定した対局進行**: AI対戦時の非同期処理を改善し、駒が消えたり進行が不安定になったりする問題を解消済みです。
+
+## AIの思考プロセスについて (How the AI Thinks)
+
+本プラグインのAIは、以下のようなプロセスで次の一手を決定しています。
+
+1.  **完全な局面の認識**: AIは、現在の盤面の駒の配置、双方の持ち駒、手番といった全ての情報を「SFEN」という標準形式で受け取ります。過去の指し手を記憶しているわけではなく、常に「現在の局面」のみに基づいて判断します。
+2.  **合法手の生成**: サーバーサイドのPHPロジックが、現在の局面でルール上可能な全ての指し手（合法手）のリストを作成します。
+3.  **プロンプトによる思考の誘導**: 生成された合法手のリストと局面情報を、自然言語処理モデル（GeminiやOpenRouter経由のモデル）に渡します。その際、以下のような指示（プロンプト）を与えて、戦略的な思考を促します。
+    *   **役割の指定**: 「あなたは世界トップクラスの将棋AIです」といった役割を与えます。
+    *   **制約**: 「合法手のリストの中から必ず選ぶこと」「JSON形式で応えること」といった厳密なルールを課します。
+    *   **戦略的思考の指示**: 難易度に応じて、「詰みを最優先する」「形勢判断を行う」「駒の価値や効率を最大化する」といった、より高度な戦略的思考を要求します。
+4.  **指し手の決定**: プロンプトを受け取ったAIモデルは、指示に従って合法手リストの中から最善と判断した手を選択して返します。サーバーは、その手が本当に合法手リストに含まれているか最終検証を行い、問題がなければその手を盤面に適用します。
+
+この仕組みにより、AIは単にルールに従うだけでなく、設定された難易度に応じて人間のように戦略的な思考を行うことを目指しています。
 
 ## 必須要件 (Requirements)
 
 *   WordPress 5.0 以上
 *   PHP 7.4 以上
 *   Google Gemini APIキー
+*   (AI vs AIモードで後手AIを使用する場合) OpenRouter APIキー
 
 ## インストール (Installation)
 
@@ -37,7 +56,8 @@ By adding the `[gemini-shogi]` shortcode to any post or page, you can embed a Sh
 
 1.  **APIキーの設定**:
     *   プラグインを有効化すると、管理画面のメニューに `[Gemini 将棋]` が追加されます。
-    *   設定ページを開き、取得したGoogle Gemini APIキーを入力して保存してください。
+    *   設定ページを開き、Google Gemini APIキーとOpenRouter APIキーを入力して保存してください。
+    *   **OpenRouterモデル名**のフィールドに、使用したいモデルの識別子（例: `mistralai/mistral-7b-instruct`）を入力します。
 
 2.  **将棋盤の表示**:
     *   将棋盤を表示したい投稿または固定ページの編集画面を開きます。
@@ -46,7 +66,14 @@ By adding the `[gemini-shogi]` shortcode to any post or page, you can embed a Sh
         [gemini-shogi]
         ```
     *   ページを公開または更新すると、その場所に将棋盤が表示されます。
-    *   将棋盤の下にあるドロップダウンメニューから、AIの強さをいつでも変更できます。
+
+## 最近の更新 (Recent Updates)
+
+*   **ver 0.8 (TBD)**:
+    *   AIモデル名の表示を改善し、「OpenRouter」という静的な表記から、設定されたモデル名が動的に表示されるようにしました。
+    *   プレイヤー対AIモードでも、対戦相手のAIモデル名が表示されるようになりました。
+*   **ver 0.7**:
+    *   AI対AIモードで、非同期処理の競合によって駒が消えたり、対局の進行が不安定になる問題を修正しました。`setInterval`を廃止し、`setTimeout`をチェーンさせる方式と思考ロック（`isAiThinking`フラグ）を導入することで、安定した対局観戦が可能になりました。
 
 ## 作者 (Author)
 

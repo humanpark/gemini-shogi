@@ -156,11 +156,12 @@ jQuery(document).ready(function ($) {
 
     function updateCurrentModelsDisplay() {
         let text = '';
+        const openRouterModel = gemini_shogi_data.openrouter_model_name || '（未設定）';
         if (gameMode === 'ai-vs-ai') {
             const geminiModel = $('#gemini-model-selector option:selected').text();
-            text = `先手: ${geminiModel} vs 後手: OpenRouter`;
+            text = `先手: ${geminiModel} vs 後手: ${openRouterModel}`;
         } else {
-            text = `Player vs AI (後手)`;
+            text = `Player vs AI (後手: ${openRouterModel})`;
         }
         boardElement.find('.current-models-display').text(text);
     }

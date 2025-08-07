@@ -31,9 +31,10 @@ function gemini_shogi_enqueue_scripts()
             'api_url' => esc_url_raw(rest_url('gemini-shogi/v1/move')),
             'valid_moves_url' => esc_url_raw(rest_url('gemini-shogi/v1/valid_moves_for_piece')),
             'ai_vs_ai_url' => esc_url_raw(rest_url('gemini-shogi/v1/ai_vs_ai_move')),
-            'player_move_url' => esc_url_raw(rest_url('gemini-shogi/v1/player_move')), // ★新規追加
+            'player_move_url' => esc_url_raw(rest_url('gemini-shogi/v1/player_move')),
             'nonce' => wp_create_nonce('wp_rest'),
             'plugin_url' => plugin_dir_url(__FILE__),
+            'openrouter_model_name' => get_option('gemini_shogi_openrouter_model_name', 'mistralai/mistral-7b-instruct'),
         ));
     }
 }
