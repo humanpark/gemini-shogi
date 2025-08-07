@@ -1,0 +1,92 @@
+/* 将棋盤の基本的なスタイル */
+#gemini-shogi-game {
+    font-family: sans-serif;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+}
+
+.board-container {
+    display: grid;
+    grid-template-columns: repeat(9, 40px);
+    grid-template-rows: repeat(9, 40px);
+    border: 2px solid #333;
+    width: 360px;
+    height: 360px;
+}
+
+.square {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+    cursor: pointer;
+    background-color: #f0d9b5; /* 木目調の色 */
+}
+
+.square.selected {
+    background-color: #fdfd96; /* 選択中のマスの色 */
+}
+
+.square.valid-move {
+    background-color: #add8e6; /* 移動可能なマスの色 */
+}
+
+/* 駒のスタイル */
+.piece {
+    width: 90%;
+    height: 90%;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* プレイヤーごとの駒の向き */
+.piece.w {
+    transform: rotate(180deg);
+}
+
+.piece-captured.w {
+    transform: rotate(180deg);
+}
+
+.piece-captured {
+    width: 36px; /* 40px * 0.9 */
+    height: 36px; /* 40px * 0.9 */
+    cursor: pointer;
+}
+
+/* 情報表示エリア */
+.info-container {
+    width: 200px;
+}
+
+.captured-pieces {
+    border: 1px solid #666;
+    padding: 10px;
+    min-height: 100px;
+    margin-bottom: 10px;
+}
+
+.captured-pieces h3 {
+    margin: 0 0 5px 0;
+    font-size: 16px;
+}
+
+/* ゲームコントロール */
+.game-controls {
+    width: 100%;
+    text-align: center;
+    margin-top: 10px;
+}
+
+#new-game-button, #difficulty-selector {
+    padding: 5px 10px;
+    font-size: 14px;
+    margin: 0 5px;
+}
