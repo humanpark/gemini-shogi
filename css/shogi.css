@@ -31,6 +31,14 @@
 
 .square.selected {
     background-color: #fdfd96; /* 選択中のマスの色 */
+    border: 3px solid #8e6b48;
+    box-shadow: 0 0 10px rgba(142, 107, 72, 0.8);
+}
+
+.piece-captured.selected {
+    border-radius: 5px;
+    background-color: #fdfd96;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
 }
 
 .square.valid-move {
