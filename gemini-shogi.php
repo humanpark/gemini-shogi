@@ -800,6 +800,210 @@ $ai_player = 'w';
 }
 
 /**
+ * APIに問い合わせてAIの指し手を取得する共通関数（フォールバック機能付き）
+ */
+function gemini_shogi_get_ai_move_from_api_v2($sfen_board, $sfen_captured, $ai_player, $difficulty, $api_provider, $initial_model_name) {
+    $debug_info = [
+        'api_provider' => $api_provider,
+        'initial_model' => $initial_model_name,
+        'model_used' => $initial_model_name,
+        'fallback_attempts' => [],
+        'received_sfen' => "sfen {$sfen_board} {$ai_player} {$sfen_captured} 1",
+        'difficulty' => $difficulty,
+        'php_valid_moves' => [],
+        'prompt_sent_to_api' => '',
+        'final_move_source' => ''
+    ];
+
+    $valid_moves = gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $ai_player);
+    $debug_info['php_valid_moves'] = $valid_moves;
+
+    if (empty($valid_moves) || $valid_moves[0] === 'resign') {
+        $debug_info['final_move_source'] = 'PHP_NO_VALID_MOVES_OR_MATE';
+        return new WP_REST_Response([ 'move' => 'resign', 'new_sfen_board' => $sfen_board, 'new_sfen_captured' => $sfen_captured, 'debug' => $debug_info ], 200);
+    }
+
+    $valid_moves_string = implode(', ', $valid_moves);
+    $sfen_string = "sfen {$sfen_board} {$ai_player} {$sfen_captured} 1";
+    $player_name_jp = ($ai_player === 'b') ? '先手' : '後手';
+    $player_name_en = ($ai_player === 'b') ? 'Black(先手)' : 'White(後手)';
+    $opponent_name_en = ($ai_player === 'b') ? 'White(後手)' : 'Black(先手)';
+
+    $base_prompt = <<<PROMPT
+あなたは世界トップクラスの将棋AIです。
+あなたの役割は **{$player_name_en}** です。
+# ルールと制約
+- **最重要**: あなたは、以下に示す「合法手のリスト」の中から、戦略的に最善と思われる手を **1つだけ** 選び、指定されたJSON形式で回答してください。
+- **リストにない手は絶対に出力してはいけません。**
+- あなたは **{$player_name_en}** です。{$opponent_name_en}の駒を動かすことはルール違反です。
+- 思考プロセスや余計な説明は一切含めず、JSONオブジェクトのみを出力してください。
+# 現在の状況
+- **あなたの手番**: {$player_name_en}
+- **盤面 (SFEN形式)**: `{$sfen_string}`
+- **あなたが指すことのできる合法手のリスト (USI形式)**:
+`{$valid_moves_string}`
+# あなたのタスク
+上記の状況と合法手のリストを分析し、{$player_name_jp}にとって戦略的に最も優れた手をリストから1つ選び、以下のJSON形式で出力してください。
+# 出力形式 (JSON)
+{
+  "move": "ここに合法手のリストから選んだUSI形式の手を記述"
+}
+PROMPT;
+
+    $difficulty_instruction = "";
+     switch ($difficulty) {
+        case 'easy':
+            $difficulty_instruction = "\n# 追加指示: 思考レベル\nあなたは将棋の初心者です。戦略的なことは考えず、上記「合法手のリスト」の中から**ランダムに近い手**を1つ選んでください。";
+            break;
+        case 'hard':
+        default:
+            $difficulty_instruction = "\n# 追加指示: 戦略的思考（エキスパートレベル）\nあなたは世界将棋AI選手権の優勝候補です。「合法手のリスト」の中から、以下の高度な戦略的思考プロセスに従って、最善の手を1つだけ厳密に選んでください。\n\n"
+            . "1. **詰みの確認と思考の深度**: \n"
+            . "   - **必達**: 相手玉に3手以上の詰み筋があれば、それを必ず実行してください。\n"
+            . "   - **必達**: 自分の玉に詰みがあれば、それを回避する手を最優先してください。\n\n"
+            . "2. **形勢判断と戦略立案**: \n"
+            . "   - **優勢時**: 無理な攻めは避け、駒損をせず、相手の反撃の芽を摘みながら、着実に勝ちに繋げる手（玉の包囲、駒の価値の最大化）を選んでください。\n"
+            . "   - **劣勢時**: 局面を複雑化させ、逆転のチャンスを生むような勝負手（リスキーでも大きなリターンが期待できる手、例えば大駒を敵陣に打ち込むなど）を積極的に選んでください。\n"
+	    . "   - **互角時**: 駒の効率（働き）を高め、玉を安全にし、将来の攻めの拠点を作るような、局面の主導権を握る手を選んでください。\n\n"
+            . "3. **手筋と価値評価**: \n"
+            . "   - **王手**: 単なる王手ではなく、相手の守備を崩壊させるような厳しい王手（両取り、守りの金銀を剥がすなど）を優先します。\n"
+            . "   - **駒の損得**: 単純な駒の価値だけでなく、その駒が盤上でどれだけ働いているか（位置エネルギー）を評価してください。価値の低い駒でも、重要な働きをしていれば温存します。\n"
+            . "   - **守備**: 自玉の安全度が最も重要です。金銀3枚の堅い囲いを維持し、相手の攻め駒を近づけないようにしてください。";
+            break;
+    }
+    $prompt = $base_prompt . $difficulty_instruction;
+    $debug_info['prompt_sent_to_api'] = $prompt;
+
+    $api_response = null;
+    $model_name = $initial_model_name;
+
+    if ($api_provider === 'gemini') {
+        $gemini_fallback_models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-lite'];
+        $start_index = array_search($initial_model_name, $gemini_fallback_models);
+
+        if ($start_index === false) {
+            $models_to_try = $gemini_fallback_models;
+        } else {
+            $models_to_try = array_slice($gemini_fallback_models, $start_index);
+        }
+
+        $api_key = get_option('gemini_shogi_api_key');
+        if (empty($api_key)) {
+             return new WP_Error('no_api_key', 'Gemini APIキーが設定されていません。', ['status' => 500]);
+        }
+
+        foreach ($models_to_try as $current_model) {
+            $debug_info['fallback_attempts'][] = "Trying model: {$current_model}";
+            $model_name = $current_model;
+
+            $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $current_model . ':generateContent?key=' . $api_key;
+            $response = wp_remote_post($api_url, [
+                'method'    => 'POST',
+                'headers'   => ['Content-Type' => 'application/json'],
+                'body'      => json_encode([
+                    'contents' => [['parts' => [['text' => $prompt]]]],
+                    'generationConfig' => ['response_mime_type' => 'application/json'],
+                ]),
+                'timeout'   => 45,
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                $api_response = $response;
+                break;
+            }
+        }
+
+        if (is_null($api_response)) {
+             $error_message = 'Gemini API呼び出しに失敗しました。すべてのフォールバックモデル（Pro, Flash, Flash-Lite）が利用できません。';
+             error_log($error_message);
+             return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $error_message], 503);
+        }
+
+    } else { // OpenRouter
+        $api_key = get_option('gemini_shogi_openrouter_api_key');
+        if (empty($api_key)) {
+            return new WP_Error('no_api_key', 'OpenRouter APIキーが設定されていません。', ['status' => 500]);
+        }
+        $api_url = 'https://openrouter.ai/api/v1/chat/completions';
+        $api_response = wp_remote_post($api_url, [
+            'method'    => 'POST',
+            'headers'   => [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ],
+            'body'      => json_encode([
+                'model' => $model_name,
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+                'response_format' => ['type' => 'json_object']
+            ]),
+            'timeout'   => 45,
+        ]);
+
+        if (is_wp_error($api_response) || wp_remote_retrieve_response_code($api_response) !== 200) {
+            $error_details = is_wp_error($api_response) ? $api_response->get_error_message() : wp_remote_retrieve_body($api_response);
+            $error_message = "OpenRouter APIの呼び出しに失敗しました。詳細: " . $error_details;
+            error_log($error_message);
+            return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $error_message], 503);
+        }
+    }
+
+    $debug_info['model_used'] = $model_name;
+    $response_body = wp_remote_retrieve_body($api_response);
+    $data = json_decode($response_body, true);
+    $ai_move = null;
+    $chosen_move = null;
+
+    if ($api_provider === 'openrouter') {
+        $ai_text_response = $data['choices'][0]['message']['content'] ?? '';
+        $parsed_response = json_decode($ai_text_response, true);
+        $ai_move = isset($parsed_response['move']) ? trim($parsed_response['move']) : null;
+    } else { // Gemini
+        $ai_text_response = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $parsed_response = json_decode($ai_text_response, true);
+        $ai_move = isset($parsed_response['move']) ? trim($parsed_response['move']) : null;
+    }
+
+    $debug_info['ai_suggested_move'] = $ai_move;
+
+    if ($ai_move && in_array($ai_move, $valid_moves)) {
+        $debug_info['final_move_source'] = 'AI_SUGGESTED_VALID_MOVE';
+        $chosen_move = $ai_move;
+    } else {
+        $debug_info['final_move_source'] = 'INVALID_MOVE_FALLBACK';
+        $chosen_move = $valid_moves[array_rand($valid_moves)];
+        error_log("Gemini Shogi Debug: Invalid Move Fallback. AI Suggested: '{$ai_move}', Fallback Chosen: '{$chosen_move}', Model: '{$model_name}'");
+    }
+
+    $final_response_data = [
+        'move' => $chosen_move,
+        'debug' => $debug_info
+    ];
+
+    if ($chosen_move !== 'resign') {
+        $board_array = gemini_shogi_parse_sfen_board($sfen_board);
+        $captured_array = gemini_shogi_parse_sfen_captured($sfen_captured);
+
+        $new_state_array = gemini_shogi_apply_move($board_array, $captured_array, $chosen_move, $ai_player);
+
+        if ($new_state_array) {
+            $final_response_data['new_sfen_board'] = gemini_shogi_board_to_sfen($new_state_array['board']);
+            $final_response_data['new_sfen_captured'] = gemini_shogi_captured_to_sfen($new_state_array['captured']);
+            $debug_info['generated_new_sfen'] = "sfen " . $final_response_data['new_sfen_board'] . " " . (($ai_player === 'b') ? 'w' : 'b') . " " . $final_response_data['new_sfen_captured'];
+        } else {
+            $debug_info['final_move_source'] = 'APPLY_MOVE_ERROR_FALLBACK';
+            $final_response_data['new_sfen_board'] = $sfen_board;
+            $final_response_data['new_sfen_captured'] = $sfen_captured;
+            error_log("Gemini Shogi CRITICAL: Failed to apply a chosen valid move. Move: '{$chosen_move}', SFEN: '{$sfen_string}'");
+        }
+    } else {
+        $final_response_data['new_sfen_board'] = $sfen_board;
+        $final_response_data['new_sfen_captured'] = $sfen_captured;
+    }
+
+    $final_response_data['debug'] = $debug_info;
+
+    return new WP_REST_Response($final_response_data, 200);
+}
+
+
+/**
  * ★★★ (修正) AI vs AI モードのハンドラ ★★★
  */
 function gemini_shogi_handle_ai_vs_ai_move($request) {
@@ -820,6 +1024,7 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
     if ($api_provider === 'gemini') {
         // 先手(Gemini)のモデル名はJSから受け取る
         $model_name = sanitize_text_field($params['gemini_model'] ?? 'gemini-1.5-flash');
+
     } else {
         // 後手(OpenRouter)のモデル名はWordPressのオプションから取得する
         $model_name = get_option('gemini_shogi_openrouter_model_name', 'openai/gpt-5');
@@ -834,6 +1039,209 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
     return gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $player_to_move, $difficulty, $api_provider, $model_name);
 }
 
+
+/**
+ * APIに問い合わせてAIの指し手を取得する共通関数（フォールバック機能付き）
+ */
+function gemini_shogi_get_ai_move_from_api_v2($sfen_board, $sfen_captured, $ai_player, $difficulty, $api_provider, $initial_model_name) {
+    $debug_info = [
+        'api_provider' => $api_provider,
+        'initial_model' => $initial_model_name,
+        'model_used' => $initial_model_name,
+        'fallback_attempts' => [],
+        'received_sfen' => "sfen {$sfen_board} {$ai_player} {$sfen_captured} 1",
+        'difficulty' => $difficulty,
+        'php_valid_moves' => [],
+        'prompt_sent_to_api' => '',
+        'final_move_source' => ''
+    ];
+
+    $valid_moves = gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $ai_player);
+    $debug_info['php_valid_moves'] = $valid_moves;
+
+    if (empty($valid_moves) || $valid_moves[0] === 'resign') {
+        $debug_info['final_move_source'] = 'PHP_NO_VALID_MOVES_OR_MATE';
+        return new WP_REST_Response([ 'move' => 'resign', 'new_sfen_board' => $sfen_board, 'new_sfen_captured' => $sfen_captured, 'debug' => $debug_info ], 200);
+    }
+
+    $valid_moves_string = implode(', ', $valid_moves);
+    $sfen_string = "sfen {$sfen_board} {$ai_player} {$sfen_captured} 1";
+    $player_name_jp = ($ai_player === 'b') ? '先手' : '後手';
+    $player_name_en = ($ai_player === 'b') ? 'Black(先手)' : 'White(後手)';
+    $opponent_name_en = ($ai_player === 'b') ? 'White(後手)' : 'Black(先手)';
+
+    $base_prompt = <<<PROMPT
+あなたは世界トップクラスの将棋AIです。
+あなたの役割は **{$player_name_en}** です。
+# ルールと制約
+- **最重要**: あなたは、以下に示す「合法手のリスト」の中から、戦略的に最善と思われる手を **1つだけ** 選び、指定されたJSON形式で回答してください。
+- **リストにない手は絶対に出力してはいけません。**
+- あなたは **{$player_name_en}** です。{$opponent_name_en}の駒を動かすことはルール違反です。
+- 思考プロセスや余計な説明は一切含めず、JSONオブジェクトのみを出力してください。
+# 現在の状況
+- **あなたの手番**: {$player_name_en}
+- **盤面 (SFEN形式)**: `{$sfen_string}`
+- **あなたが指すことのできる合法手のリスト (USI形式)**:
+`{$valid_moves_string}`
+# あなたのタスク
+上記の状況と合法手のリストを分析し、{$player_name_jp}にとって戦略的に最も優れた手をリストから1つ選び、以下のJSON形式で出力してください。
+# 出力形式 (JSON)
+{
+  "move": "ここに合法手のリストから選んだUSI形式の手を記述"
+}
+PROMPT;
+
+    $difficulty_instruction = "";
+     switch ($difficulty) {
+        case 'easy':
+            $difficulty_instruction = "\n# 追加指示: 思考レベル\nあなたは将棋の初心者です。戦略的なことは考えず、上記「合法手のリスト」の中から**ランダムに近い手**を1つ選んでください。";
+            break;
+        case 'hard':
+        default:
+            $difficulty_instruction = "\n# 追加指示: 戦略的思考（エキスパートレベル）\nあなたは世界将棋AI選手権の優勝候補です。「合法手のリスト」の中から、以下の高度な戦略的思考プロセスに従って、最善の手を1つだけ厳密に選んでください。\n\n"
+            . "1. **詰みの確認と思考の深度**: \n"
+            . "   - **必達**: 相手玉に3手以上の詰み筋があれば、それを必ず実行してください。\n"
+            . "   - **必達**: 自分の玉に詰みがあれば、それを回避する手を最優先してください。\n\n"
+            . "2. **形勢判断と戦略立案**: \n"
+            . "   - **優勢時**: 無理な攻めは避け、駒損をせず、相手の反撃の芽を摘みながら、着実に勝ちに繋げる手（玉の包囲、駒の価値の最大化）を選んでください。\n"
+            . "   - **劣勢時**: 局面を複雑化させ、逆転のチャンスを生むような勝負手（リスキーでも大きなリターンが期待できる手、例えば大駒を敵陣に打ち込むなど）を積極的に選んでください。\n"
+	    . "   - **互角時**: 駒の効率（働き）を高め、玉を安全にし、将来の攻めの拠点を作るような、局面の主導権を握る手を選んでください。\n\n"
+            . "3. **手筋と価値評価**: \n"
+            . "   - **王手**: 単なる王手ではなく、相手の守備を崩壊させるような厳しい王手（両取り、守りの金銀を剥がすなど）を優先します。\n"
+            . "   - **駒の損得**: 単純な駒の価値だけでなく、その駒が盤上でどれだけ働いているか（位置エネルギー）を評価してください。価値の低い駒でも、重要な働きをしていれば温存します。\n"
+            . "   - **守備**: 自玉の安全度が最も重要です。金銀3枚の堅い囲いを維持し、相手の攻め駒を近づけないようにしてください。";
+            break;
+    }
+    $prompt = $base_prompt . $difficulty_instruction;
+    $debug_info['prompt_sent_to_api'] = $prompt;
+
+    $api_response = null;
+    $model_name = $initial_model_name;
+
+    if ($api_provider === 'gemini') {
+        $gemini_fallback_models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-lite'];
+        $start_index = array_search($initial_model_name, $gemini_fallback_models);
+
+        if ($start_index === false) {
+            $models_to_try = $gemini_fallback_models;
+        } else {
+            $models_to_try = array_slice($gemini_fallback_models, $start_index);
+        }
+
+        $api_key = get_option('gemini_shogi_api_key');
+        if (empty($api_key)) {
+             return new WP_Error('no_api_key', 'Gemini APIキーが設定されていません。', ['status' => 500]);
+        }
+
+        foreach ($models_to_try as $current_model) {
+            $debug_info['fallback_attempts'][] = "Trying model: {$current_model}";
+            $model_name = $current_model;
+
+            $api_url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $current_model . ':generateContent?key=' . $api_key;
+            $response = wp_remote_post($api_url, [
+                'method'    => 'POST',
+                'headers'   => ['Content-Type' => 'application/json'],
+                'body'      => json_encode([
+                    'contents' => [['parts' => [['text' => $prompt]]]],
+                    'generationConfig' => ['response_mime_type' => 'application/json'],
+                ]),
+                'timeout'   => 45,
+            ]);
+
+            if (!is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200) {
+                $api_response = $response;
+                break;
+            }
+        }
+
+        if (is_null($api_response)) {
+             $error_message = 'Gemini API呼び出しに失敗しました。すべてのフォールバックモデル（Pro, Flash, Flash-Lite）が利用できません。';
+             error_log($error_message);
+             return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $error_message], 503);
+        }
+
+    } else { // OpenRouter
+        $api_key = get_option('gemini_shogi_openrouter_api_key');
+        if (empty($api_key)) {
+            return new WP_Error('no_api_key', 'OpenRouter APIキーが設定されていません。', ['status' => 500]);
+        }
+        $api_url = 'https://openrouter.ai/api/v1/chat/completions';
+        $api_response = wp_remote_post($api_url, [
+            'method'    => 'POST',
+            'headers'   => [ 'Content-Type' => 'application/json', 'Authorization' => 'Bearer ' . $api_key ],
+            'body'      => json_encode([
+                'model' => $model_name,
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+                'response_format' => ['type' => 'json_object']
+            ]),
+            'timeout'   => 45,
+        ]);
+
+        if (is_wp_error($api_response) || wp_remote_retrieve_response_code($api_response) !== 200) {
+            $error_details = is_wp_error($api_response) ? $api_response->get_error_message() : wp_remote_retrieve_body($api_response);
+            $error_message = "OpenRouter APIの呼び出しに失敗しました。詳細: " . $error_details;
+            error_log($error_message);
+            return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $error_message], 503);
+        }
+    }
+
+    $debug_info['model_used'] = $model_name;
+    $response_body = wp_remote_retrieve_body($api_response);
+    $data = json_decode($response_body, true);
+    $ai_move = null;
+    $chosen_move = null;
+
+    if ($api_provider === 'openrouter') {
+        $ai_text_response = $data['choices'][0]['message']['content'] ?? '';
+        $parsed_response = json_decode($ai_text_response, true);
+        $ai_move = isset($parsed_response['move']) ? trim($parsed_response['move']) : null;
+    } else { // Gemini
+        $ai_text_response = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        $parsed_response = json_decode($ai_text_response, true);
+        $ai_move = isset($parsed_response['move']) ? trim($parsed_response['move']) : null;
+    }
+
+    $debug_info['ai_suggested_move'] = $ai_move;
+
+    if ($ai_move && in_array($ai_move, $valid_moves)) {
+        $debug_info['final_move_source'] = 'AI_SUGGESTED_VALID_MOVE';
+        $chosen_move = $ai_move;
+    } else {
+        $debug_info['final_move_source'] = 'INVALID_MOVE_FALLBACK';
+        $chosen_move = $valid_moves[array_rand($valid_moves)];
+        error_log("Gemini Shogi Debug: Invalid Move Fallback. AI Suggested: '{$ai_move}', Fallback Chosen: '{$chosen_move}', Model: '{$model_name}'");
+    }
+
+    $final_response_data = [
+        'move' => $chosen_move,
+        'debug' => $debug_info
+    ];
+
+    if ($chosen_move !== 'resign') {
+        $board_array = gemini_shogi_parse_sfen_board($sfen_board);
+        $captured_array = gemini_shogi_parse_sfen_captured($sfen_captured);
+
+        $new_state_array = gemini_shogi_apply_move($board_array, $captured_array, $chosen_move, $ai_player);
+
+        if ($new_state_array) {
+            $final_response_data['new_sfen_board'] = gemini_shogi_board_to_sfen($new_state_array['board']);
+            $final_response_data['new_sfen_captured'] = gemini_shogi_captured_to_sfen($new_state_array['captured']);
+            $debug_info['generated_new_sfen'] = "sfen " . $final_response_data['new_sfen_board'] . " " . (($ai_player === 'b') ? 'w' : 'b') . " " . $final_response_data['new_sfen_captured'];
+        } else {
+            $debug_info['final_move_source'] = 'APPLY_MOVE_ERROR_FALLBACK';
+            $final_response_data['new_sfen_board'] = $sfen_board;
+            $final_response_data['new_sfen_captured'] = $sfen_captured;
+            error_log("Gemini Shogi CRITICAL: Failed to apply a chosen valid move. Move: '{$chosen_move}', SFEN: '{$sfen_string}'");
+        }
+    } else {
+        $final_response_data['new_sfen_board'] = $sfen_board;
+        $final_response_data['new_sfen_captured'] = $sfen_captured;
+    }
+
+    $final_response_data['debug'] = $debug_info;
+
+    return new WP_REST_Response($final_response_data, 200);
+}
 
 /**
  * APIに問い合わせてAIの指し手を取得する共通関数（フォールバック機能付き）
