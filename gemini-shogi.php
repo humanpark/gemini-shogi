@@ -35,6 +35,7 @@ function gemini_shogi_enqueue_scripts()
             'nonce' => wp_create_nonce('wp_rest'),
             'plugin_url' => plugin_dir_url(__FILE__),
             'openrouter_model_name' => get_option('gemini_shogi_openrouter_model_name', 'openai/gpt-5'),
+
         ));
     }
 }
@@ -825,6 +826,7 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
         if (empty($model_name)) {
             // 管理画面で設定されていない場合のデフォルト値
             $model_name = 'openai/gpt-5';
+
         }
     }
     
@@ -1047,3 +1049,4 @@ PROMPT;
 
     return new WP_REST_Response($final_response_data, 200);
 }
+
