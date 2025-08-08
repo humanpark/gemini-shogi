@@ -787,14 +787,12 @@ function gemini_shogi_handle_player_vs_ai_move($request) {
 
     $sfen_board = sanitize_text_field($params['board'] ?? '');
     $sfen_captured = sanitize_text_field($params['captured'] ?? '');
-    $player_to_move = sanitize_text_field($params['turn'] ?? '');
+    $ai_player = 'w'; // In P vs AI, the AI is always 'w' (Gote)
     $difficulty = sanitize_text_field($params['difficulty'] ?? 'normal');
     
-    $ai_player = 'w';
-    $difficulty = sanitize_text_field($params['difficulty'] ?? 'normal');
-    // プレイヤー対戦時のAIはOpenRouterから取得する（管理画面でモデルを設定可能）
-    $api_provider = 'openrouter'; 
-    $model_name = get_option('gemini_shogi_openrouter_model_name', 'mistralai/mistral-7b-instruct');
+    // Get the model configuration from the frontend request
+    $api_provider = sanitize_text_field($params['api_provider'] ?? 'gemini');
+    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-2.5-flash');
 
     return gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $ai_player, $difficulty, $api_provider, $model_name);
 }
