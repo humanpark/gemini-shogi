@@ -31,6 +31,14 @@ jQuery(document).ready(function ($) {
     }
 
     function setupControls() {
+        const openRouterModelName = gemini_shogi_data.openrouter_model_name || 'OpenRouter Model';
+        const modelOptions = `
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+            <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
+            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+            <option value="openrouter" data-model-name="${openRouterModelName}">${openRouterModelName}</option>
+        `;
+
         const controls = `
             <div class="control-section">
                 <label>ゲームモード:</label>
@@ -39,32 +47,38 @@ jQuery(document).ready(function ($) {
             </div>
             <div id="player-controls">
                  <button id="new-game-button">新しいゲーム</button>
+                 <label for="difficulty-selector">難易度:</label>
                  <select id="difficulty-selector">
                     <option value="easy">やさしい</option>
                     <option value="normal" selected>ふつう</option>
                     <option value="hard">プロ棋士</option>
                 </select>
+                <label for="player-ai-model-selector">AIモデル:</label>
+                <select id="player-ai-model-selector">${modelOptions}</select>
             </div>`;
         boardElement.find('.game-controls').html(controls);
 
         const aiVsAiControls = `
             <div class="control-section">
-                <label for="gemini-model-selector">先手 (Gemini):</label>
-                <select id="gemini-model-selector">
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                    <option value="gemini-1.5-flash" selected>Gemini 1.5 Flash</option>
-                    <option value="gemini-1.5-flash-lite">Gemini 1.5 Flash-Lite</option>
-                </select>
+                <label for="ai1-model-selector">先手 (AI 1):</label>
+                <select id="ai1-model-selector">${modelOptions}</select>
+                <label for="ai2-model-selector">後手 (AI 2):</label>
+                <select id="ai2-model-selector">${modelOptions}</select>
                 <button id="start-ai-vs-ai-button">対戦開始</button>
                 <button id="stop-ai-vs-ai-button" disabled>停止</button>
             </div>`;
         boardElement.find('.ai-vs-ai-controls').html(aiVsAiControls);
+        // Set default for AI 2 to be OpenRouter if available
+        $('#ai2-model-selector').val('openrouter');
+
 
         // Event Listeners
         $('input[name="gameMode"]').on('change', handleGameModeChange);
         $('#new-game-button').on('click', resetGame);
         $('#start-ai-vs-ai-button').on('click', startAiVsAiGame);
         $('#stop-ai-vs-ai-button').on('click', stopAiVsAiGame);
+        // Add listeners for new selectors
+        $('#player-ai-model-selector, #ai1-model-selector, #ai2-model-selector').on('change', updateCurrentModelsDisplay);
     }
 
     function handleGameModeChange() {
@@ -154,14 +168,15 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    function updateCurrentModelsDisplay(geminiModelName) {
+    function updateCurrentModelsDisplay() {
         let text = '';
-        const openRouterModel = gemini_shogi_data.openrouter_model_name || '（未設定）';
         if (gameMode === 'ai-vs-ai') {
-            const geminiModelText = geminiModelName || $(`#gemini-model-selector option[value="${$('#gemini-model-selector').val()}"]`).text();
-            text = `先手: ${geminiModelText} vs 後手: ${openRouterModel}`;
-        } else {
-            text = `Player vs AI (後手: ${openRouterModel})`;
+            const ai1ModelText = $('#ai1-model-selector option:selected').text();
+            const ai2ModelText = $('#ai2-model-selector option:selected').text();
+            text = `先手: ${ai1ModelText} vs 後手: ${ai2ModelText}`;
+        } else { // player-vs-ai
+            const aiModelText = $('#player-ai-model-selector option:selected').text();
+            text = `Player vs AI (AI: ${aiModelText})`;
         }
         boardElement.find('.current-models-display').text(text);
     }
@@ -275,36 +290,53 @@ jQuery(document).ready(function ($) {
     // =================================================================
     function getPlayerVsAiMove() {
         updateStatus('AIが考慮中です...');
+        const selectedOption = $('#player-ai-model-selector option:selected');
+        const provider = selectedOption.val() === 'openrouter' ? 'openrouter' : 'gemini';
+        const modelName = selectedOption.val() === 'openrouter' ? selectedOption.data('model-name') : selectedOption.val();
+
         $.ajax({
-            url: gemini_shogi_data.api_url,
+            url: gemini_shogi_data.api_url, // This is the '/move' endpoint for P vs AI
             method: 'POST',
             contentType: 'application/json; charset=utf-8',
             beforeSend: xhr => xhr.setRequestHeader('X-WP-Nonce', gemini_shogi_data.nonce),
-            data: JSON.stringify({ board: boardToSfen(), captured: capturedToSfen(), turn: 'w', difficulty: $('#difficulty-selector').val() }),
+            data: JSON.stringify({
+                board: boardToSfen(),
+                captured: capturedToSfen(),
+                turn: 'w', // AI is always white in P vs AI
+                difficulty: $('#difficulty-selector').val(),
+                api_provider: provider,
+                model_name: modelName
+            }),
             success: response => {
-                handleAiResponse(response, 'b');
+                handleAiResponse(response, 'b'); // After AI moves, it's player's (b) turn
             },
             error: (jqXHR, textStatus) => updateStatus(`AI通信エラー: ${textStatus}`)
         });
     }
 
     function requestAiVsAiMove() {
-        if (isAiThinking) return; // 既にAIが思考中なら多重実行を防ぐ
+        if (isAiThinking) return;
 
-        const currentTurnPlayer = turn === 'b' ? '先手(Gemini)' : '後手(OpenRouter)';
-        updateStatus(`${currentTurnPlayer}が考慮中です...`);
-        isAiThinking = true; // AIの思考を開始し、ロックをかける
+        const selectorId = turn === 'b' ? '#ai1-model-selector' : '#ai2-model-selector';
+        const selectedOption = $(`${selectorId} option:selected`);
+        const provider = selectedOption.val() === 'openrouter' ? 'openrouter' : 'gemini';
+        const modelName = selectedOption.val() === 'openrouter' ? selectedOption.data('model-name') : selectedOption.val();
+
+        const currentTurnPlayer = turn === 'b' ? '先手' : '後手';
+        updateStatus(`${currentTurnPlayer} (${selectedOption.text()}) が考慮中です...`);
+        isAiThinking = true;
 
         $.ajax({
             url: gemini_shogi_data.ai_vs_ai_url,
             method: 'POST',
             contentType: 'application/json; charset=utf-8',
             beforeSend: xhr => xhr.setRequestHeader('X-WP-Nonce', gemini_shogi_data.nonce),
-            data: JSON.stringify({ 
-                board: boardToSfen(), 
-                captured: capturedToSfen(), 
-                turn: turn, 
-                gemini_model: $('#gemini-model-selector').val() 
+            data: JSON.stringify({
+                board: boardToSfen(),
+                captured: capturedToSfen(),
+                turn: turn,
+                api_provider: provider,
+                model_name: modelName
             }),
             success: response => {
                 const nextTurn = turn === 'b' ? 'w' : 'b';
@@ -316,35 +348,31 @@ jQuery(document).ready(function ($) {
                     errorMessage = jqXHR.responseJSON.message;
                 }
                 updateStatus(errorMessage);
-                isAiThinking = false; // エラーが発生した場合もロックを解除
+                isAiThinking = false;
                 stopAiVsAiGame();
             }
         });
     }
 
-    /**
-     * ★★★ (修正) AIからのレスポンスを処理する関数 ★★★
-     * サーバーから送られてきた新しい盤面状態でJSのグローバル変数を上書きし、再描画する。
-     * setTimeoutで次の手をスケジュールする機能を追加。
-     */
     function handleAiResponse(response, nextTurn) {
-        isAiThinking = false; // レスポンスを受け取ったので、思考ロックを解除
+        isAiThinking = false;
 
-        // モデルがフォールバックした場合にUIを更新
-        if (gameMode === 'ai-vs-ai' && response.debug && response.debug.model_used) {
+        if (gameMode === 'ai-vs-ai' && response.debug && response.debug.model_used && response.debug.api_provider === 'gemini') {
             const usedModel = response.debug.model_used;
-            const currentModelInSelector = $('#gemini-model-selector').val();
+            const movedPlayer = turn; // The player who just moved
+            const selectorId = movedPlayer === 'b' ? '#ai1-model-selector' : '#ai2-model-selector';
+            const currentModelInSelector = $(selectorId).val();
+
             if (usedModel !== currentModelInSelector) {
-                $('#gemini-model-selector').val(usedModel);
-                const modelText = $(`#gemini-model-selector option[value='${usedModel}']`).text();
-                updateCurrentModelsDisplay(modelText);
-                // ユーザーにフォールバックしたことを通知
+                $(selectorId).val(usedModel);
+                updateCurrentModelsDisplay();
+                const modelText = $(`${selectorId} option[value='${usedModel}']`).text();
                 updateStatus(`モデルが ${modelText} にフォールバックしました。`);
                 setTimeout(() => {
-                    // 通常のステータスメッセージに戻す
-                    const currentTurnPlayer = turn === 'b' ? '先手(Gemini)' : '後手(OpenRouter)';
-                     updateStatus(`${currentTurnPlayer}が考慮中です...`);
-                }, 2500); // 2.5秒表示
+                    const currentTurnPlayer = nextTurn === 'b' ? '先手' : '後手';
+                    const nextModelText = $(nextTurn === 'b' ? '#ai1-model-selector' : '#ai2-model-selector').text();
+                    updateStatus(`${currentTurnPlayer} (${nextModelText}) が考慮中です...`);
+                }, 2500);
             }
         }
 
