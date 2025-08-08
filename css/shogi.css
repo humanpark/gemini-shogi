@@ -35,10 +35,16 @@
     box-shadow: 0 0 10px rgba(142, 107, 72, 0.8);
 }
 
+.square.last-move {
+    background-color: rgba(255, 204, 0, 0.5); /* 最後の移動先をハイライト */
+}
+
+
 .piece-captured.selected {
     border-radius: 5px;
     background-color: #fdfd96;
     box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+    filter: drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.7));
 }
 
 .square.valid-move {
@@ -52,6 +58,12 @@
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
+    transition: transform 0.1s ease-in-out, filter 0.1s ease-in-out;
+}
+
+.square.selected .piece {
+    transform: scale(1.05);
+    filter: drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.7));
 }
 
 /* プレイヤーごとの駒の向き */
