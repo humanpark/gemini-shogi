@@ -809,26 +809,13 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
     $sfen_board = sanitize_text_field($params['board'] ?? '');
     $sfen_captured = sanitize_text_field($params['captured'] ?? '');
     $player_to_move = sanitize_text_field($params['turn'] ?? 'b');
-    $difficulty = 'hard';
+    $difficulty = 'hard'; // AI vs AI is always 'hard'
 
-    // 手番によってAPIプロバイダーとモデル名を正しく切り替える
-    $api_provider = ($player_to_move === 'b') ? 'gemini' : 'openrouter';
+    // Get the model configuration for the current player from the frontend request
+    $api_provider = sanitize_text_field($params['api_provider'] ?? 'gemini');
+    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-2.5-flash');
     
-    $model_name = '';
-    if ($api_provider === 'gemini') {
-        // 先手(Gemini)のモデル名はJSから受け取る
-        $model_name = sanitize_text_field($params['gemini_model'] ?? 'gemini-2.5-flash');
-    } else {
-        // 後手(OpenRouter)のモデル名はWordPressのオプションから取得する
-        $model_name = get_option('gemini_shogi_openrouter_model_name', 'openai/gpt-5');
-        if (empty($model_name)) {
-            // 管理画面で設定されていない場合のデフォルト値
-            $model_name = 'openai/gpt-5';
-
-        }
-    }
-    
-    // 共通関数を呼び出す
+    // Call the common function with the dynamically provided model info
     return gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $player_to_move, $difficulty, $api_provider, $model_name);
 }
 
@@ -1058,4 +1045,5 @@ PROMPT;
     $final_response_data['debug'] = $debug_info;
 
     return new WP_REST_Response($final_response_data, 200);
+
 }
