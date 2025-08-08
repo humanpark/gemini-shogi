@@ -326,6 +326,13 @@ jQuery(document).ready(function ($) {
     function handleAiResponse(response, nextTurn) {
         isAiThinking = false; // レスポンスを受け取ったので、思考ロックを解除
 
+
+        // APIエラーがサーバーから返された場合にメッセージを表示
+        if (response.api_error_message) {
+            updateStatus(response.api_error_message);
+        }
+
+
         if (response.move && response.move !== 'resign') {
             if (response.new_sfen_board && response.new_sfen_captured) {
                 // サーバーの状態を正として、クライアントの状態を強制的に同期
