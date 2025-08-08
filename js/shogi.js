@@ -154,12 +154,12 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    function updateCurrentModelsDisplay() {
+    function updateCurrentModelsDisplay(geminiModelName) {
         let text = '';
         const openRouterModel = gemini_shogi_data.openrouter_model_name || '（未設定）';
         if (gameMode === 'ai-vs-ai') {
-            const geminiModel = $('#gemini-model-selector option:selected').text();
-            text = `先手: ${geminiModel} vs 後手: ${openRouterModel}`;
+            const geminiModelText = geminiModelName || $(`#gemini-model-selector option[value="${$('#gemini-model-selector').val()}"]`).text();
+            text = `先手: ${geminiModelText} vs 後手: ${openRouterModel}`;
         } else {
             text = `Player vs AI (後手: ${openRouterModel})`;
         }
@@ -310,8 +310,12 @@ jQuery(document).ready(function ($) {
                 const nextTurn = turn === 'b' ? 'w' : 'b';
                 handleAiResponse(response, nextTurn);
             },
-            error: (jqXHR, textStatus) => {
-                updateStatus(`AI通信エラー: ${textStatus}`);
+            error: (jqXHR, textStatus, errorThrown) => {
+                let errorMessage = `AI通信エラー: ${textStatus}`;
+                if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
+                    errorMessage = jqXHR.responseJSON.message;
+                }
+                updateStatus(errorMessage);
                 isAiThinking = false; // エラーが発生した場合もロックを解除
                 stopAiVsAiGame();
             }
@@ -326,12 +330,23 @@ jQuery(document).ready(function ($) {
     function handleAiResponse(response, nextTurn) {
         isAiThinking = false; // レスポンスを受け取ったので、思考ロックを解除
 
-
-        // APIエラーがサーバーから返された場合にメッセージを表示
-        if (response.api_error_message) {
-            updateStatus(response.api_error_message);
+        // モデルがフォールバックした場合にUIを更新
+        if (gameMode === 'ai-vs-ai' && response.debug && response.debug.model_used) {
+            const usedModel = response.debug.model_used;
+            const currentModelInSelector = $('#gemini-model-selector').val();
+            if (usedModel !== currentModelInSelector) {
+                $('#gemini-model-selector').val(usedModel);
+                const modelText = $(`#gemini-model-selector option[value='${usedModel}']`).text();
+                updateCurrentModelsDisplay(modelText);
+                // ユーザーにフォールバックしたことを通知
+                updateStatus(`モデルが ${modelText} にフォールバックしました。`);
+                setTimeout(() => {
+                    // 通常のステータスメッセージに戻す
+                    const currentTurnPlayer = turn === 'b' ? '先手(Gemini)' : '後手(OpenRouter)';
+                     updateStatus(`${currentTurnPlayer}が考慮中です...`);
+                }, 2500); // 2.5秒表示
+            }
         }
-
 
         if (response.move && response.move !== 'resign') {
             if (response.new_sfen_board && response.new_sfen_captured) {
