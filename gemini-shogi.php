@@ -35,6 +35,7 @@ function gemini_shogi_enqueue_scripts()
             'nonce' => wp_create_nonce('wp_rest'),
             'plugin_url' => plugin_dir_url(__FILE__),
             'openrouter_model_name' => get_option('gemini_shogi_openrouter_model_name', 'openai/gpt-5'),
+
         ));
     }
 }
@@ -825,6 +826,7 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
         if (empty($model_name)) {
             // 管理画面で設定されていない場合のデフォルト値
             $model_name = 'openai/gpt-5';
+
         }
     }
     
@@ -908,6 +910,7 @@ PROMPT;
             . "   - **守備**: 自玉の安全度が最も重要です。金銀3枚の堅い囲いを維持し、相手の攻め駒を近づけないようにしてください。";
             break;
         default: // normal
+
             $difficulty_instruction = "\n# 追加指示: 戦略的思考（エキスパートレベル）\nあなたは世界将棋AI選手権の優勝候補です。「合法手のリスト」の中から、以下の高度な戦略的思考プロセスに従って、最善の手を1つだけ厳密に選んでください。\n\n"
             . "1. **詰みの確認と思考の深度**: \n"
             . "   - **必達**: 相手玉に3手以上の詰み筋があれば、それを必ず実行してください。\n"
@@ -920,6 +923,7 @@ PROMPT;
             . "   - **王手**: 単なる王手ではなく、相手の守備を崩壊させるような厳しい王手（両取り、守りの金銀を剥がすなど）を優先します。\n"
             . "   - **駒の損得**: 単純な駒の価値だけでなく、その駒が盤上でどれだけ働いているか（位置エネルギー）を評価してください。価値の低い駒でも、重要な働きをしていれば温存します。\n"
             . "   - **守備**: 自玉の安全度が最も重要です。金銀3枚の堅い囲いを維持し、相手の攻め駒を近づけないようにしてください。";
+
             break;
     }
 
@@ -1047,3 +1051,4 @@ PROMPT;
 
     return new WP_REST_Response($final_response_data, 200);
 }
+
