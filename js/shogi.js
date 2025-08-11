@@ -33,9 +33,10 @@ jQuery(document).ready(function ($) {
     function setupControls() {
         const openRouterModelName = gemini_shogi_data.openrouter_model_name || 'OpenRouter Model';
         const modelOptions = `
-            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-            <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
-            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro (最新版)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (最新版)</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro (安定版)</option>
+            <option value="gemini-1.5-flash" selected>Gemini 1.5 Flash (安定版)</option>
             <option value="openrouter" data-model-name="${openRouterModelName}">${openRouterModelName}</option>
         `;
 
@@ -310,7 +311,13 @@ jQuery(document).ready(function ($) {
             success: response => {
                 handleAiResponse(response, 'b'); // After AI moves, it's player's (b) turn
             },
-            error: (jqXHR, textStatus) => updateStatus(`AI通信エラー: ${textStatus}`)
+            error: (jqXHR, textStatus) => {
+                let errorMessage = `AI通信エラー: ${textStatus}`;
+                if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
+                    errorMessage = jqXHR.responseJSON.message.replace(/\\n/g, '<br>');
+                }
+                updateStatus(errorMessage);
+            }
         });
     }
 
@@ -345,7 +352,7 @@ jQuery(document).ready(function ($) {
             error: (jqXHR, textStatus, errorThrown) => {
                 let errorMessage = `AI通信エラー: ${textStatus}`;
                 if (jqXHR.responseJSON && jqXHR.responseJSON.message) {
-                    errorMessage = jqXHR.responseJSON.message;
+                    errorMessage = jqXHR.responseJSON.message.replace(/\\n/g, '<br>');
                 }
                 updateStatus(errorMessage);
                 isAiThinking = false;
