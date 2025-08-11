@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Gemini 将棋
  * Description: Gemini APIと連携し、AIと会話しながら将棋が指せるプラグインです。
- * Version: 0.7 (安定化バージョン)
+ * Version: 0.8 (安定化バージョン)
  * Author: Your Name
  */
 
@@ -21,12 +21,12 @@ function gemini_shogi_game()
 }
 add_shortcode('gemini-shogi', 'gemini_shogi_game');
 
-// バージョンを0.7に更新
+// バージョンを0.8に更新
 function gemini_shogi_enqueue_scripts()
 {
     if (is_singular() && has_shortcode(get_post()->post_content, 'gemini-shogi')) {
         wp_enqueue_style('gemini-shogi-css', plugin_dir_url(__FILE__) . 'css/shogi.css');
-        wp_enqueue_script('gemini-shogi-js', plugin_dir_url(__FILE__) . 'js/shogi.js', array('jquery'), '0.7', true);
+        wp_enqueue_script('gemini-shogi-js', plugin_dir_url(__FILE__) . 'js/shogi.js', array('jquery'), '0.8', true);
         wp_localize_script('gemini-shogi-js', 'gemini_shogi_data', array(
             'api_url' => esc_url_raw(rest_url('gemini-shogi/v1/move')),
             'valid_moves_url' => esc_url_raw(rest_url('gemini-shogi/v1/valid_moves_for_piece')),
@@ -106,7 +106,7 @@ function gemini_shogi_handle_player_move($request) {
         // 合法手なので、盤面を更新
         $board_array = gemini_shogi_parse_sfen_board($sfen_board);
         $captured_array = gemini_shogi_parse_sfen_captured($sfen_captured);
-        
+
         $new_state_array = gemini_shogi_apply_move($board_array, $captured_array, $move_usi, $player);
 
         return new WP_REST_Response([
@@ -189,12 +189,12 @@ function gemini_shogi_parse_sfen_board($sfen_board) {
             } else {
                 $player = ctype_upper($char) ? 'b' : 'w'; // 大文字=先手(b), 小文字=後手(w)
                 $type = strtoupper($char);
-                
+
                 $board[$row_index][$col_index] = [
                     'type' => ($promoted ? '+' : '') . $type,
                     'player' => $player
                 ];
-                
+
                 $col_index++;
                 $promoted = false;
             }
@@ -456,7 +456,7 @@ function gemini_shogi_is_king_in_check($board, $player) {
             foreach ($piece_moves['long'] as $move) {
                 $dr_base = ($opponent === 'b') ? $move[0] : -$move[0];
                 $dc_base = $move[1];
-                
+
                 for ($i = 1; $i < 9; $i++) {
                     $nr = $r + ($dr_base * $i);
                     $nc = $c + ($dc_base * $i);
@@ -464,7 +464,7 @@ function gemini_shogi_is_king_in_check($board, $player) {
                     if ($nr < 0 || $nr >= 9 || $nc < 0 || $nc >= 9) {
                         break; // 盤外
                     }
-                    
+
                     $dest_piece = $board[$nr][$nc];
                     if ($nr === $king_pos['row'] && $nc === $king_pos['col']) {
                         return true;
@@ -552,7 +552,7 @@ function gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $player) {
             if ($piece === null || $piece['player'] !== $player) continue;
 
             $piece_moves = gemini_shogi_get_piece_moves($piece['type']);
-            
+
             // 短距離の動き
             foreach ($piece_moves['short'] as $move) {
                 $dr = ($player === 'b') ? $move[0] : -$move[0];
@@ -565,7 +565,7 @@ function gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $player) {
                     if ($dest_piece === null || $dest_piece['player'] !== $player) {
                         $from_usi = gemini_shogi_coords_to_usi_square($r, $c);
                         $to_usi = gemini_shogi_coords_to_usi_square($nr, $nc);
-                        
+
                         // 成りを含めた手を検証
                         $moves_to_check = [];
                         $can_promote = gemini_shogi_can_promote($piece['type'], $player, $r, $nr);
@@ -597,7 +597,7 @@ function gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $player) {
             foreach ($piece_moves['long'] as $move) {
                 $dr_base = ($player === 'b') ? $move[0] : -$move[0];
                 $dc_base = $move[1];
-                
+
                 for ($i = 1; $i < 9; $i++) {
                     $nr = $r + ($dr_base * $i);
                     $nc = $c + ($dc_base * $i);
@@ -611,7 +611,7 @@ function gemini_shogi_get_valid_moves($sfen_board, $sfen_captured, $player) {
 
                         $moves_to_check = [];
                         $can_promote = gemini_shogi_can_promote($piece['type'], $player, $r, $nr);
-                        
+
                         // 強制成りはない（香車が最奥段に到達するのは短距離の動きで処理される）
                         $moves_to_check[] = $from_usi . $to_usi;
                         if ($can_promote) {
@@ -695,7 +695,7 @@ function gemini_shogi_is_checkmate($board, $player, $captured_pieces) {
     // 2. 王を動かして逃げられる合法手は存在するか？
     // この関数の内部で get_valid_moves を呼ぶと無限再帰に陥るため、
     // ここでは「王が動くことでチェックが外れるか」という観点でのみ合法手をチェックする
-    
+
     // 盤上の駒を動かす
     for ($r = 0; $r < 9; $r++) {
         for ($c = 0; $c < 9; $c++) {
@@ -703,7 +703,7 @@ function gemini_shogi_is_checkmate($board, $player, $captured_pieces) {
             if ($piece === null || $piece['player'] !== $player) continue;
 
             $piece_moves = gemini_shogi_get_piece_moves($piece['type']);
-            
+
             // 短距離
             foreach ($piece_moves['short'] as $move) {
                 $dr = ($player === 'b') ? $move[0] : -$move[0];
@@ -758,7 +758,7 @@ function gemini_shogi_is_checkmate($board, $player, $captured_pieces) {
                     // 禁じ手チェックは get_valid_moves に任せ、ここでは単純なチェックのみ
                     if (($piece_type === 'P' || $piece_type === 'L') && (($player === 'b' && $r === 0) || ($player === 'w' && $r === 8))) continue;
                     if ($piece_type === 'N' && (($player === 'b' && $r <= 1) || ($player === 'w' && $r >= 7))) continue;
-                    
+
                     $move_usi = $piece_type . '*' . gemini_shogi_coords_to_usi_square($r, $c);
                     $new_state = gemini_shogi_apply_move($board, $captured_pieces, $move_usi, $player);
                     if ($new_state && !gemini_shogi_is_king_in_check($new_state['board'], $player)) return false; // 逃げ道発見
@@ -789,10 +789,10 @@ function gemini_shogi_handle_player_vs_ai_move($request) {
     $sfen_captured = sanitize_text_field($params['captured'] ?? '');
     $ai_player = 'w'; // In P vs AI, the AI is always 'w' (Gote)
     $difficulty = sanitize_text_field($params['difficulty'] ?? 'normal');
-    
+
     // Get the model configuration from the frontend request
     $api_provider = sanitize_text_field($params['api_provider'] ?? 'gemini');
-    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-2.5-flash');
+    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-1.5-flash');
 
     return gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $ai_player, $difficulty, $api_provider, $model_name);
 }
@@ -813,8 +813,8 @@ function gemini_shogi_handle_ai_vs_ai_move($request) {
 
     // Get the model configuration for the current player from the frontend request
     $api_provider = sanitize_text_field($params['api_provider'] ?? 'gemini');
-    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-2.5-flash');
-    
+    $model_name = sanitize_text_field($params['model_name'] ?? 'gemini-1.5-flash');
+
     // Call the common function with the dynamically provided model info
     return gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $player_to_move, $difficulty, $api_provider, $model_name);
 }
@@ -849,7 +849,7 @@ function gemini_shogi_get_ai_move_from_api($sfen_board, $sfen_captured, $ai_play
     $player_name_jp = ($ai_player === 'b') ? '先手' : '後手';
     $player_name_en = ($ai_player === 'b') ? 'Black(先手)' : 'White(後手)';
     $opponent_name_en = ($ai_player === 'b') ? 'White(後手)' : 'Black(先手)';
-    
+
     $base_prompt = <<<PROMPT
 あなたは世界トップクラスの将棋AIです。
 あなたの役割は **{$player_name_en}** です。
@@ -885,23 +885,23 @@ PROMPT;
 あなたは世界将棋AI選手権の優勝候補です。「合法手のリスト」の中から、以下の高度な戦略的思考プロセスに従って、最善の手を1つだけ厳密に選んでください。
 
 "
-            . "1. **詰みの確認と思考の深度**: 
+            . "1. **詰みの確認と思考の深度**:
 "
             . "   - **必達**: 相手玉に3手以上の詰み筋があれば、それを必ず実行してください。
 "
             . "   - **必達**: 自分の玉に詰みがあれば、それを回避する手を最優先してください。
 
 "
-            . "2. **形勢判断と戦略立案**: 
+            . "2. **形勢判断と戦略立案**:
 "
             . "   - **優勢時**: 無理な攻めは避け、駒損をせず、相手の反撃の芽を摘みながら、着実に勝ちに繋げる手（玉の包囲、駒の価値の最大化）を選んでください。
 "
             . "   - **劣勢時**: 局面を複雑化させ、逆転のチャンスを生むような勝負手（リスキーでも大きなリターンが期待できる手、例えば大駒を敵陣に打ち込むなど）を積極的に選んでください。
 "
-    	    . "   - **互角時**: 駒の効率（働き）を高め、玉を安全にし、将来の攻めの拠点を作るような、局面の主導権を握る手を選んでください。
+	    . "   - **互角時**: 駒の効率（働き）を高め、玉を安全にし、将来の攻めの拠点を作るような、局面の主導権を握る手を選んでください。
 
 "
-            . "3. **手筋と価値評価**: 
+            . "3. **手筋と価値評価**:
 "
             . "   - **王手**: 単なる王手ではなく、相手の守備を崩壊させるような厳しい王手（両取り、守りの金銀を剥がすなど）を優先します。
 "
@@ -915,11 +915,12 @@ PROMPT;
 
     $api_response = null;
     $model_name = $initial_model_name;
+    $detailed_errors = [];
 
     if ($api_provider === 'gemini') {
-        $gemini_fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+        $gemini_fallback_models = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'];
         $start_index = array_search($initial_model_name, $gemini_fallback_models);
-        
+
         if ($start_index === false) {
             // A fallback model name was passed that doesn't exist in our list, so we'll just start from the top.
             $models_to_try = $gemini_fallback_models;
@@ -952,16 +953,20 @@ PROMPT;
                 $api_response = $response;
                 break; // Success, exit the loop.
             }
-             // Log the specific error for this model attempt
-            $error_body = is_wp_error($response) ? $response->get_error_message() : wp_remote_retrieve_body($response);
-            error_log("Gemini Shogi: API call to {$current_model} failed. Details: " . $error_body);
+
+            // Log the specific error for this model attempt
+            $error_body_raw = is_wp_error($response) ? $response->get_error_message() : wp_remote_retrieve_body($response);
+            $error_data = json_decode($error_body_raw, true);
+            $error_message = $error_data['error']['message'] ?? '不明なエラー';
+            $detailed_errors[] = "モデル「{$current_model}」: " . $error_message;
+            error_log("Gemini Shogi: API call to {$current_model} failed. Details: " . $error_body_raw);
         }
 
         // If after trying all fallbacks, the response is still null, then we fail.
         if (is_null($api_response)) {
-             $error_message = 'Gemini API呼び出しに失敗しました。すべてのフォールバックモデル（Pro, Flash, Flash-Lite）が利用できません。';
-             error_log($error_message);
-             return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $error_message], 503);
+             $final_error_message = "AIモデルの呼び出しに失敗しました。試行した全てのモデルでエラーが発生しました。\n\n" . implode("\n", $detailed_errors);
+             error_log($final_error_message);
+             return new WP_REST_Response(['error' => 'API_UNAVAILABLE', 'message' => $final_error_message], 503);
         }
 
     } else { // OpenRouter
@@ -980,7 +985,7 @@ PROMPT;
             ]),
             'timeout'   => 45,
         ]);
-        
+
         if (is_wp_error($api_response) || wp_remote_retrieve_response_code($api_response) !== 200) {
             $error_details = is_wp_error($api_response) ? $api_response->get_error_message() : wp_remote_retrieve_body($api_response);
             $error_message = "OpenRouter APIの呼び出しに失敗しました。モデル: {$model_name}。詳細: " . $error_details;
@@ -1004,7 +1009,7 @@ PROMPT;
         $parsed_response = json_decode($ai_text_response, true);
         $ai_move = isset($parsed_response['move']) ? trim($parsed_response['move']) : null;
     }
-    
+
     $debug_info['ai_suggested_move'] = $ai_move;
 
     if ($ai_move && in_array($ai_move, $valid_moves)) {
@@ -1024,9 +1029,9 @@ PROMPT;
     if ($chosen_move !== 'resign') {
         $board_array = gemini_shogi_parse_sfen_board($sfen_board);
         $captured_array = gemini_shogi_parse_sfen_captured($sfen_captured);
-        
+
         $new_state_array = gemini_shogi_apply_move($board_array, $captured_array, $chosen_move, $ai_player);
-        
+
         if ($new_state_array) {
             $final_response_data['new_sfen_board'] = gemini_shogi_board_to_sfen($new_state_array['board']);
             $final_response_data['new_sfen_captured'] = gemini_shogi_captured_to_sfen($new_state_array['captured']);
